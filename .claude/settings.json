@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Applications/**)",
+      "Bash(npx --version)",
+      "Bash(\"/Applications/draw.io.app/Contents/MacOS/draw.io\" --help)",
+      "Bash(\"/Applications/draw.io.app/Contents/MacOS/draw.io\" -x -f png -t -b 20 -o jewerly_c4_target.png jewerly_c4_target.drawio)"
+    ]
+  }
+}
