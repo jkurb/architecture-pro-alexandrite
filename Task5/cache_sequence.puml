@@ -1,0 +1,52 @@
+@startuml cache_sequence
+title Кеширование дашборда MES: чтение списка и запись статуса
+
+actor "Оператор" as Op
+participant "MES UI" as UI
+participant "MES API" as API
+database  "Redis" as Cache
+database  "MES DB\n(read-replica)" as DB
+database  "MES DB\n(primary)" as DBW
+queue     "RabbitMQ" as MQ
+participant "Order Service" as OS
+
+== Сценарий 1. Чтение списка заказов (Cache-Aside) ==
+
+Op -> UI: открыть дашборд
+UI -> API: GET /orders?status=APPROVED&page=1
+API -> Cache: GET orders:status=APPROVED:page=1:v=42
+
+alt Cache hit
+    Cache --> API: список заказов
+else Cache miss
+    API -> Cache: SET NX lock:orders:... (single-flight)
+    API -> DB: SELECT ... WHERE status=... LIMIT/OFFSET
+    DB  --> API: список заказов
+    API -> Cache: SET orders:...:v=42 TTL=60s
+    API -> Cache: DEL lock:orders:...
+end
+
+API --> UI: 200 OK
+UI  --> Op: дашборд отрисован
+
+== Сценарий 2. Изменение статуса (оператор берёт заказ) ==
+
+Op -> UI: клик «Взять в работу»
+UI -> API: PATCH /orders/{id}/status {MANUFACTURING_STARTED}
+API -> DBW: UPDATE orders SET status=...\nWHERE id=... AND status='MANUFACTURING_APPROVED'
+DBW --> API: 1 row updated (CAS)
+API -> Cache: INCR orders:version
+API -> Cache: DEL order:{id}
+API -> MQ: publish OrderStatusChanged (outbox)
+API --> UI: 200 OK
+
+MQ --> OS: OrderStatusChanged
+OS -> OS: обновить таймлайн в Order DB
+
+== Сценарий 3. Внешнее изменение (CRM подтверждает заказ) ==
+
+MQ --> API: OrderStatusChanged{MANUFACTURING_APPROVED}
+API -> Cache: INCR orders:version
+API -> Cache: DEL order:{id}
+
+@enduml
